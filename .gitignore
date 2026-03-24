@@ -1,0 +1,28 @@
+# Terraform/OpenTofu state files (using remote backend)
+*.tfstate
+*.tfstate.*
+*.tfstate.backup*
+
+# Local .terraform directories
+**/.terraform/*
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Sensitive variable files
+*.tfvars
+*.tfvars.json
+
+# Generated ignition files
+*.ign
+overwatch-gen/
+
+# OKD build artifacts and install state
+auth/
+bin/
+scos-artifacts/
+.openshift_install*
+metadata.json
+install-config.yaml.backup
+sentinel-agent/__pycache__/

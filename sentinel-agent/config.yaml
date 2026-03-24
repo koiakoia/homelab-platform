@@ -1,0 +1,124 @@
+# sentinel-agent configuration
+# Deployed to /opt/sentinel-agent/config.yaml on iac-control
+# Secrets are NOT stored here — fetched from Vault at runtime via AppRole
+
+agent:
+  id: "sentinel-agent"
+  cycle_interval_sec: 300  # 5 minutes (systemd timer handles scheduling)
+  dry_run: false
+  log_dir: "/var/log/sentinel-agent"
+  log_level: "INFO"
+  state_dir: "/opt/sentinel-agent/state"
+
+vault:
+  addr: "https://${VAULT_IP}:8200"  # direct IP; vault.${INTERNAL_DOMAIN} resolves to Pangolin which doesn't expose :8200
+  approle_mount: "approle"
+  role_id_file: "/opt/sentinel-agent/.vault-role-id"
+  secret_id_file: "/opt/sentinel-agent/.vault-secret-id"
+  token_ttl: "5m"
+  # Secrets pulled each cycle:
+  # Format: simple string (path, returns first value) or dict with path + key
+  secrets:
+    plane_api_key: "secret/data/plane/api-key"
+    gitlab_token: "secret/data/gitlab"
+    wazuh_password:
+      path: "secret/data/wazuh"
+      key: "api_password"
+    wazuh_indexer_password:
+      path: "secret/data/wazuh-indexer"
+      key: "admin_password"
+    gemini_api_key: "secret/data/gemini"
+
+plane:
+  base_url: "https://plane.${INTERNAL_DOMAIN}/api/v1"
+  workspace_slug: "${WORKSPACE_SLUG}"
+  project_id: "223c0b66-4255-406e-932f-3b50c0e93543"  # OPS
+  # Poll for issues with these filters:
+  assigned_label: "sentinel-agent"
+  poll_states: ["Todo", "In Progress"]
+
+wazuh:
+  api_url: "https://${WAZUH_IP}:55000"  # direct IP; hostname resolves to Pangolin which doesn't proxy :55000
+  api_user: "wazuh-wui"  # matches Vault secret/wazuh api_user
+  # Optional daemons that are expected to be stopped (won't generate signals)
+  expected_stopped_daemons:
+    - "wazuh-agentlessd"
+    - "wazuh-csyslogd"
+    - "wazuh-dbd"
+    - "wazuh-maild"
+    - "wazuh-reportd"
+  # password from Vault: secret/wazuh
+  severity_threshold: 8  # only alerts >= this level
+  max_alerts: 50
+
+# Wazuh Indexer (OpenSearch) — real security alert data
+# The Manager API only provides agent health; actual alerts live in the Indexer
+wazuh_indexer:
+  api_url: "https://${WAZUH_IP}:9200"  # OpenSearch API on Wazuh server
+  api_user: "admin"
+  # password from Vault: secret/wazuh-indexer (or falls back to wazuh_password)
+  index_pattern: "wazuh-alerts-*"
+  # Rule IDs to exclude (noise: known informational rules that always fire)
+  excluded_rule_ids:
+    - "5710"   # sshd login session opened
+    - "5501"   # login session opened (PAM)
+    - "5715"   # sshd authentication success
+    - "60122"  # CIS-CAT scan result (informational)
+
+argocd:
+  api_url: "https://argocd.${INTERNAL_DOMAIN}/api/v1"
+  admin_user: "admin"
+  kubeconfig: "/home/sentinel-agent/.kube/config"
+  # Password read from OKD secret at startup (see argocd source)
+  password_from_secret:
+    namespace: "openshift-gitops"
+    secret_name: "openshift-gitops-cluster"
+    key: "admin.password"
+  unhealthy_statuses:
+    - "Degraded"
+    - "Missing"
+  sync_error_statuses:
+    - "SyncFailed"
+    - "ComparisonError"
+
+gemini:
+  models:
+    - "gemini-2.5-flash"           # primary: 5 RPM, 20 RPD
+    - "gemini-2.5-flash-lite"      # fallback 1: 10 RPM, 20 RPD
+    - "gemini-3-flash-preview"     # fallback 2: 5 RPM, 20 RPD
+    - "gemini-3.1-flash-lite-preview"  # fallback 3: 15 RPM, 500 RPD
+  timeout_sec: 30
+  # API key from Vault: secret/gemini
+  # Combined free tier: ~60 RPD across all models
+
+claude:
+  # API key from Vault or env
+  model: "claude-sonnet-4-5-20241022"
+  max_tokens: 4096
+
+ntfy:
+  url: "https://ntfy.${INTERNAL_DOMAIN}"
+  topic: "sentinel"
+  # Priority mapping in notify/ntfy.py
+
+gitlab:
+  host: "${GITLAB_IP}"
+  # token from Vault: secret/gitlab
+  project_ids:
+    sentinel_iac: 1
+    overwatch: 2
+    overwatch_gitops: 3
+
+kubernetes:
+  kubeconfig: "/home/sentinel-agent/.kube/config"
+  # Or use in-cluster config if running on OKD
+
+tier2:
+  max_restarts_per_pod: 3
+  max_restarts_per_cycle: 10
+  stuck_pod_grace_minutes: 15
+
+tier3:
+  branch_prefix: ""  # branches named {PROJ}-{SEQ}-{desc}
+  commit_agent_id: "sentinel-agent"
+  notification_wait_minutes: 15

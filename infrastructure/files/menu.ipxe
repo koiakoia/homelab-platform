@@ -1,0 +1,12 @@
+#!ipxe
+
+# 1. Attempt to boot from local disk first
+echo Attempting to boot from local disk...
+sanboot --no-describe --drive 0x80 || goto install
+
+:install
+# 2. If local boot fails, start SCOS Installer
+echo Local boot failed. Starting SCOS Installer...
+kernel http://${CONFIG_SERVER_IP}/scos/vmlinuz initrd=initrd.img coreos.inst.install_dev=/dev/sda coreos.inst.insecure coreos.inst.image_url=http://${CONFIG_SERVER_IP}/scos/metal.raw.gz coreos.inst.ignition_url=http://${CONFIG_SERVER_IP}/ignition/bootstrap-install.ign ip=dhcp nameserver=${PXE_SERVER_IP} console=tty0 console=ttyS0,115200n8 coreos.live.rootfs_url=http://${CONFIG_SERVER_IP}/scos/rootfs.img
+initrd http://${CONFIG_SERVER_IP}/scos/initrd.img
+boot
